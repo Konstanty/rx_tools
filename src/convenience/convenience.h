@@ -183,7 +183,7 @@ int verbose_device_search(char *s, SoapySDRDevice **devOut);
  * \param format stream format (such as SOAPY_SDR_CS16)
  * \return dev 0 if successful
  */
-int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t channel, const char *format);
+int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t *channels, size_t num_channels, const char *format);
 
 /*!
  * Apply settings to device
@@ -210,5 +210,14 @@ int suppress_stdout_start(void);
  * \param tmp_stdout File descriptor from suppress_stdout_start()
  */
 void suppress_stdout_stop(int tmp_stdout);
+
+/*!
+ * Apply settings to device channel configuration
+ *
+ * \param dev the device handle
+ * \return 0 on success
+ */
+
+int verbose_set_properties(SoapySDRDevice *dev, uint32_t samp_rate, int frequency, char *gain_str, char *antenna_str, int ppm_error, size_t channel);
 
 #endif /*__CONVENIENCE_H*/
