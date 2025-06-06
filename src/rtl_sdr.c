@@ -102,7 +102,7 @@ size_t parse_channels(const char * channels_str, size_t * channels) {
 	const char * end = channels_str + strlen(channels_str);
 	size_t num_channels = 0;
 	while (channels_str < end && num_channels < MAX_NUM_CHANNELS) {
-		channels[num_channels] = strtol(channels_str, &next, 10);
+		channels[num_channels] = strtol(channels_str, (char **)&next, 10);
 		if (next != channels_str) {
 			num_channels += 1;
 		}
@@ -243,7 +243,7 @@ int main(int argc, char **argv)
 
 	size_t max_dev_channels = SoapySDRDevice_getNumChannels(dev, SOAPY_SDR_RX);
 	if (num_channels == 0 || num_channels > max_dev_channels) {
-		fprintf(stderr, "Invalid channel specification, requested %d channels, maximum available %d\n", num_channels, max_dev_channels);
+		fprintf(stderr, "Invalid channel specification, requested %ld channels, maximum available %ld\n", num_channels, max_dev_channels);
 		exit(1);
 	}
 
@@ -287,7 +287,7 @@ int main(int argc, char **argv)
 	} else {
 		for (size_t i = 0; i < num_channels; i++) {
 			char fn[PATH_MAX];
-			snprintf(fn, PATH_MAX, "%s.rx%d", filename, channels[i]);
+			snprintf(fn, PATH_MAX, "%s.rx%ld", filename, channels[i]);
 			outfiles[i] = fopen(fn, "wb");
 			if (!outfiles[i]) {
 				fprintf(stderr, "Failed to open %s\n", fn);
@@ -366,7 +366,7 @@ int main(int argc, char **argv)
 
 			// Don't process samples until we've skipped the requested number of samples
 			if (samples_to_skip > 0) {
-				if (samples_read > samples_to_skip)
+				if ((uint32_t)samples_read > samples_to_skip)
 					samples_read = samples_to_skip;
 				samples_to_skip -= samples_read;
 				continue;
@@ -440,7 +440,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);
 
 	if (strcmp(filename, "-") != 0) {
-		for (int i = 0; i < num_channels; ++i) {
+		for (size_t i = 0; i < num_channels; ++i) {
 			fclose(outfiles[i]);
 		}
 	}
@@ -450,7 +450,7 @@ int main(int argc, char **argv)
 	SoapySDRDevice_unmake(dev);
 
 	// Free our buffers, even though we're about to exit
-	for (int chan_idx=0; chan_idx < num_channels; ++chan_idx) {
+	for (size_t chan_idx=0; chan_idx < num_channels; ++chan_idx) {
 		free(buffers[chan_idx]);
 	}
 	free(buffers);

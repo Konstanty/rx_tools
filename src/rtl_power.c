@@ -841,7 +841,7 @@ int main(int argc, char **argv)
 	char t_str[50];
 	struct tm cal_time = {0};
 	double (*window_fn)(int, int) = rectangle;
-	int channel = 0;	
+	size_t channel = 0;
 	char *antenna_str = NULL;
 	freq_optarg = "";
 
