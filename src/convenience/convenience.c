@@ -295,6 +295,12 @@ int verbose_gain_str_set(SoapySDRDevice *dev, char *gain_str, size_t channel)
 		return r;
 	}
 	*/
+	// for bladeRF, manual gain needs to disable AGC
+	char *driver = SoapySDRDevice_getDriverKey(dev);
+	if (strcmp(driver, "bladeRF") == 0) {
+		fprintf(stderr, "Disabling AGC for bladeRF for channel %d.\n", channel);
+		SoapySDRDevice_setGainMode(dev, SOAPY_SDR_RX, channel, false);
+	}
 
 	if (strchr(gain_str, '=')) {
 		// Set each gain individually (more control)
