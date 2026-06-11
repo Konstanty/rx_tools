@@ -828,8 +828,8 @@ int main(int argc, char **argv)
 	char *dev_query = "";
 	int ppm_error = 0;
 	int interval = 10;
-	int fft_threads = 1;
-	int smoothing = 0;
+	// int fft_threads = 1;
+	// int smoothing = 0;
 	int single = 0;
 	int direct_sampling = 0;
 	int offset_tuning = 0;
@@ -872,12 +872,12 @@ int main(int argc, char **argv)
 		case 'e':
 			exit_time = (time_t)((int)round(atoft(optarg)));
 			break;
-		case 's':
+		/*case 's':
 			if (strcmp("avg",  optarg) == 0) {
 				smoothing = 0;}
 			if (strcmp("iir",  optarg) == 0) {
 				smoothing = 1;}
-			break;
+			break;*/
 		case 'w':
 			if (strcmp("rectangle",  optarg) == 0) {
 				window_fn = rectangle;}
@@ -896,9 +896,9 @@ int main(int argc, char **argv)
 			if (strcmp("bartlett",  optarg) == 0) {
 				window_fn = bartlett;}
 			break;
-		case 't':
+		/* case 't':
 			fft_threads = atoi(optarg);
-			break;
+			break;*/
 		case 'p':
 			ppm_error = atoi(optarg);
 			break;
