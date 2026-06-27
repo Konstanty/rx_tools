@@ -390,31 +390,31 @@ int main(int argc, char **argv)
 						((uint16_t *)output_buffer)[i * 2 + 0] = (b1 << 12) | (b0 << 4);
 						((uint16_t *)output_buffer)[i * 2 + 1] = (b2 << 8) | (b1 & 0xf0);
 					}
-					if (fwrite(output_buffer, sizeof(uint16_t), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
+					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)(samples_read)) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CS8)) {
-					for (int i = 0; i < samples_read; ++i) {
+					for (int i = 0; i < samples_read*2; ++i) {
 						((uint8_t *)output_buffer)[i] = (uint8_t)(((int16_t *)buffers[chan_idx])[i] / (float)SHRT_MAX * 128.0 + 0.4);
 					}
-					if (fwrite(output_buffer, sizeof(uint8_t), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
+					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CU8)) {
-					for (int i = 0; i < samples_read; ++i) {
+					for (int i = 0; i < samples_read*2; ++i) {
 						((int8_t *)output_buffer)[i] = (int8_t)(((int16_t*)buffers[chan_idx])[i] / (float)SHRT_MAX * 128.0 + 127.4);
 					}
-					if (fwrite(output_buffer, sizeof(int8_t), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
+					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CF32)) {
-					for (int i = 0; i < samples_read; ++i) {
+					for (int i = 0; i < samples_read*2; ++i) { // complex!
 						((float *)output_buffer)[i] = ((uint16_t*)buffers[chan_idx])[i] * 1.0f / (float)SHRT_MAX;
 					}
-					if (fwrite(output_buffer, sizeof(float), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
+					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
 						break;
 					}
