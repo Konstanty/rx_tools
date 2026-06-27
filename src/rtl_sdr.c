@@ -223,7 +223,8 @@ int main(int argc, char **argv)
 	// for now only input to output in same format, input CS16 to all, and CS12 to CS16
 	if (!ISFMT(input_format, output_format)
 			&& !ISFMT(input_format, SOAPY_SDR_CS16)
-			&& (!ISFMT(input_format, SOAPY_SDR_CS12) || !ISFMT(output_format, SOAPY_SDR_CS16))) {
+			&& (!ISFMT(input_format, SOAPY_SDR_CS12) || !ISFMT(output_format, SOAPY_SDR_CS16))
+		    && (!ISFMT(input_format, SOAPY_SDR_CF32) || !ISFMT(output_format, SOAPY_SDR_CS16))) {
 		fprintf(stderr, "Unsupported input/output conversion: %s to %s\n", input_format, output_format);
 		exit(1);
 	}
@@ -413,6 +414,14 @@ int main(int argc, char **argv)
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CF32)) {
 					for (int i = 0; i < samples_read*2; ++i) { // complex!
 						((float *)output_buffer)[i] = ((uint16_t*)buffers[chan_idx])[i] * 1.0f / (float)SHRT_MAX;
+					}
+					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
+						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						break;
+					}
+				} else if (ISFMT(input_format, SOAPY_SDR_CF32) && ISFMT(output_format, SOAPY_SDR_CS16)) {
+					for (int i = 0; i < samples_read*2; ++i) {
+						((int16_t *)output_buffer)[i] = ((float*)buffers[chan_idx])[i] * (float)SHRT_MAX;
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
