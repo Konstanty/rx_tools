@@ -325,7 +325,7 @@ int main(int argc, char **argv)
 	for (size_t chan_idx=0; chan_idx<num_channels; ++chan_idx) {
 		// TODO: Fix the XTRX driver to either actually provide CS12, or to advertise that it provides CS16
 		//buffers[chan_idx] = malloc(buffer_size * SoapySDR_formatToSize(input_elem_size));
-		buffers[chan_idx] = malloc(buffer_size * SoapySDR_formatToSize(SOAPY_SDR_CS16));
+		buffers[chan_idx] = malloc(buffer_size * SoapySDR_formatToSize(input_format));
 	}
 	// Output buffer that holds the converted data.  We only convert a single channel at a time.
 	void * output_buffer = malloc(buffer_size * SoapySDR_formatToSize(output_format));
