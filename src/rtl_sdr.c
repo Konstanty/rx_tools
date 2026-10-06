@@ -158,7 +158,7 @@ int main(int argc, char **argv)
 	int sync_mode = 0;
 	int direct_sampling = 0;
 	char *dev_query = "";
-	uint32_t frequency = 100000000;
+	double frequency = 100000000;
 	uint32_t samp_rate = DEFAULT_SAMPLE_RATE;
 	uint32_t bandwidth = 0;
 	uint32_t buffer_size = 0;
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
 			dev_query = optarg;
 			break;
 		case 'f':
-			frequency = (uint32_t)atofs(optarg);
+			frequency = atofs(optarg);
 			break;
 		case 'g':
 			gain_str = optarg;
