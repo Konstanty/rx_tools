@@ -70,7 +70,7 @@ double atofp(char *s);
  * \return 0 on success
  */
 
-int verbose_set_frequency(SoapySDRDevice *dev, uint32_t frequency, size_t channel);
+int verbose_set_frequency(SoapySDRDevice *dev, double frequency, size_t channel);
 
 /*!
  * Set device sample rate and report status on stderr
@@ -181,9 +181,10 @@ int verbose_device_search(char *s, SoapySDRDevice **devOut);
  * \param streamOut stream output returned
  * \param channel channel to listen
  * \param format stream format (such as SOAPY_SDR_CS16)
+ * \param stream_args driver stream arguments (ex: buflen=32768,buffers=64), NULL for none
  * \return dev 0 if successful
  */
-int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t *channels, size_t num_channels, const char *format);
+int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t *channels, size_t num_channels, const char *format, const char *stream_args);
 
 /*!
  * Apply settings to device
@@ -218,6 +219,6 @@ void suppress_stdout_stop(int tmp_stdout);
  * \return 0 on success
  */
 
-int verbose_set_properties(SoapySDRDevice *dev, uint32_t samp_rate, int frequency, char *gain_str, char *antenna_str, int ppm_error, size_t channel);
+int verbose_set_properties(SoapySDRDevice *dev, uint32_t samp_rate, double frequency, char *gain_str, char *antenna_str, int ppm_error, size_t channel);
 
 #endif /*__CONVENIENCE_H*/
