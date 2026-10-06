@@ -40,12 +40,14 @@
 #define MINIMAL_BUF_LENGTH		512
 #define MAXIMAL_BUF_LENGTH		(256 * 8196)
 #define MAX_NUM_CHANNELS		256
+// Consecutive readStream timeouts tolerated before giving up on the device
+#define MAX_READ_TIMEOUTS		5
 
 #define ISFMT(a,b) (!strcmp((a),(b)))
 
 static int do_exit = 0;
-static uint32_t samples_to_read = 0;
-static uint32_t samples_to_skip = 0;
+static uint64_t samples_to_read = 0;
+static uint64_t samples_to_skip = 0;
 static SoapySDRDevice *dev = NULL;
 static SoapySDRStream *stream = NULL;
 
@@ -185,10 +187,10 @@ int main(int argc, char **argv)
 			break;
 		case 'n':
 			// full I/Q pair count
-			samples_to_read = (uint32_t)atofs(optarg);
+			samples_to_read = (uint64_t)atofs(optarg);
 			break;
 		case 'k':
-			samples_to_skip = (uint32_t)atofs(optarg);
+			samples_to_skip = (uint64_t)atofs(optarg);
 			break;
 		case 'S':
 			sync_mode = 1;
@@ -341,11 +343,14 @@ int main(int argc, char **argv)
                         exit(1);
                 }
 		suppress_stdout_stop(tmp_stdout);
+		int num_timeouts = 0;
 		while (!do_exit) {
 			int flags = 0;
 			long long timeNs = 0;
-			long timeoutNs = 1000000;
+			// 1 s, the first buffers after activateStream (e.g. bladeRF 2 channel) can take well over 1 ms
+			long timeoutNs = 1000000000;
 			int samples_read = 0;
+			int write_failed = 0;
 
 			// readStream returns the number of samples read (which is the same for each channel)
 			samples_read = SoapySDRDevice_readStream(dev, stream, buffers, buffer_size, &flags, &timeNs, timeoutNs);
@@ -357,10 +362,19 @@ int main(int argc, char **argv)
 					fflush(stderr);
 					continue;
 				}
-				fprintf(stderr, "WARNING: sync read failed. %d\n", samples_read);
+				if (samples_read == SOAPY_SDR_TIMEOUT && ++num_timeouts < MAX_READ_TIMEOUTS) {
+					fprintf(stderr, "T");
+					fflush(stderr);
+					continue;
+				}
+				// Stop here, falling through would write samples_read (negative) samples from the buffers
+				fprintf(stderr, "ERROR: sync read failed. %d\n", samples_read);
+				r = samples_read;
+				break;
 			}
+			num_timeouts = 0;
 
-			if ((samples_to_read > 0) && (samples_to_read < (uint32_t)samples_read)) {
+			if ((samples_to_read > 0) && (samples_to_read <= (uint64_t)samples_read)) {
 				// truncate to requested sample count
 				samples_read = samples_to_read;
 				do_exit = 1;
@@ -368,7 +382,7 @@ int main(int argc, char **argv)
 
 			// Don't process samples until we've skipped the requested number of samples
 			if (samples_to_skip > 0) {
-				if ((uint32_t)samples_read > samples_to_skip)
+				if ((uint64_t)samples_read > samples_to_skip)
 					samples_read = samples_to_skip;
 				samples_to_skip -= samples_read;
 				continue;
@@ -380,6 +394,7 @@ int main(int argc, char **argv)
 					// The "native" format we read in, write out no conversion needed
 					if (fwrite(buffers[chan_idx], SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS12) && ISFMT(output_format, SOAPY_SDR_CS16)) {
@@ -393,6 +408,7 @@ int main(int argc, char **argv)
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)(samples_read)) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CS8)) {
@@ -401,6 +417,7 @@ int main(int argc, char **argv)
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CU8)) {
@@ -409,6 +426,7 @@ int main(int argc, char **argv)
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CF32)) {
@@ -417,6 +435,7 @@ int main(int argc, char **argv)
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CF32) && ISFMT(output_format, SOAPY_SDR_CS16)) {
@@ -425,9 +444,14 @@ int main(int argc, char **argv)
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
+						write_failed = 1;
 						break;
 					}
 				}
+			}
+			if (write_failed) {
+				r = -EIO;
+				break;
 			}
 
 
@@ -444,7 +468,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (do_exit)
+	if (do_exit && r >= 0)
 		fprintf(stderr, "\nUser cancel, exiting...\n");
 	else
 		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);
