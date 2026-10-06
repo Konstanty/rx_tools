@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <math.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -68,6 +69,7 @@ void usage(void)
 		"\t[-k number of samples skip before recording (default: 0)]\n"
 		"\t[-I input format, CU8|CS8|CS12|CS16|CF32 (default: CS16)]\n"
 		"\t[-F output format, CU8|CS8|CS12|CS16|CF32 (default: CU8)]\n"
+		"\t[-x CS16 input full scale for conversions (ex: 2048 for 12-bit, default: from device or 32768)]\n"
 		"\t[-S force sync output (default: async)]\n"
 		"\t[-D direct_sampling_mode, 0 (default/off), 1 (I), 2 (Q), 3 (no-mod)]\n"
 		"\t[-t SDR settings (ex: rfnotch_ctrl=false,dabnotch_ctrlb=true)]\n"
@@ -80,19 +82,19 @@ char const *parse_fmt(char const *fmt)
 	if (!fmt || !*fmt)
 		return NULL;
 
-	else if (!strcasecmp(optarg, "CU8"))
+	else if (!strcasecmp(fmt, "CU8"))
 		return SOAPY_SDR_CU8;
 
-	else if (!strcasecmp(optarg, "CS8"))
+	else if (!strcasecmp(fmt, "CS8"))
 		return SOAPY_SDR_CS8;
 
-	else if (!strcasecmp(optarg, "CS12"))
+	else if (!strcasecmp(fmt, "CS12"))
 		return SOAPY_SDR_CS12;
 
-	else if (!strcasecmp(optarg, "CS16"))
+	else if (!strcasecmp(fmt, "CS16"))
 		return SOAPY_SDR_CS16;
 
-	else if (!strcasecmp(optarg, "CF32"))
+	else if (!strcasecmp(fmt, "CF32"))
 		return SOAPY_SDR_CF32;
 
 	else
@@ -111,6 +113,13 @@ size_t parse_channels(const char * channels_str, size_t * channels) {
 		channels_str = next + 1;
 	}
 	return num_channels;
+}
+
+// Round to nearest and saturate, so out-of-range samples clip instead of wrapping
+static inline long clamp_round(float v, long lo, long hi)
+{
+	long r = lrintf(v);
+	return r < lo ? lo : r > hi ? hi : r;
 }
 
 #ifdef _WIN32
@@ -155,8 +164,9 @@ int main(int argc, char **argv)
 	char const *input_format = SOAPY_SDR_CS16;
 	char const *output_format = SOAPY_SDR_CU8;
 	char *sdr_settings = NULL;
+	double full_scale = 0;
 
-	while ((opt = getopt(argc, argv, "d:f:g:c:a:s:b:n:p:D:SI:F:t:w:k:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:f:g:c:a:s:b:n:p:D:SI:F:t:w:k:x:")) != -1) {
 		switch (opt) {
 		case 'd':
 			dev_query = optarg;
@@ -216,6 +226,13 @@ int main(int argc, char **argv)
 		case 't':
 			sdr_settings = optarg;
 			break;
+		case 'x':
+			full_scale = atof(optarg);
+			if (full_scale <= 0) {
+				fprintf(stderr, "Invalid full scale: %s\n", optarg);
+				exit(1);
+			}
+			break;
 		default:
 			usage();
 			break;
@@ -250,6 +267,20 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Invalid channel specification, requested %ld channels, maximum available %ld\n", num_channels, max_dev_channels);
 		exit(1);
 	}
+
+	// CS16 from a 12/14-bit ADC only spans +/-2048 or +/-8192; scaling by 32768 would waste most of
+	// an 8-bit output. The driver's full scale only applies if CS16 is its native (unconverted) format.
+	if (full_scale == 0) {
+		double native_scale = 0;
+		char *native_format = SoapySDRDevice_getNativeStreamFormat(dev, SOAPY_SDR_RX, channels[0], &native_scale);
+		if (native_format && ISFMT(native_format, input_format) && native_scale > 0)
+			full_scale = native_scale;
+		else
+			full_scale = 32768;
+		free(native_format);
+	}
+	if (ISFMT(input_format, SOAPY_SDR_CS16) && !ISFMT(output_format, SOAPY_SDR_CS16))
+		fprintf(stderr, "Using CS16 full scale: %g\n", full_scale);
 
 	size_t input_elem_size = SoapySDR_formatToSize(input_format);
 	fprintf(stderr, "Using output format: %s (input format %s, %d bytes per element)\n", output_format, input_format, (int)input_elem_size);
@@ -332,6 +363,9 @@ int main(int argc, char **argv)
 	}
 	// Output buffer that holds the converted data.  We only convert a single channel at a time.
 	void * output_buffer = malloc(buffer_size * SoapySDR_formatToSize(output_format));
+	// CS16 sample multipliers: to [-1, 1) for CF32, and to [-128, 128) for CS8/CU8
+	const float cs16_to_float = (float)(1.0 / full_scale);
+	const float cs16_to_8bit = (float)(128.0 / full_scale);
 
 	if(sdr_settings)
 		verbose_settings(dev, sdr_settings);
@@ -413,7 +447,7 @@ int main(int argc, char **argv)
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CS8)) {
 					for (int i = 0; i < samples_read*2; ++i) {
-						((uint8_t *)output_buffer)[i] = (uint8_t)(((int16_t *)buffers[chan_idx])[i] / (float)SHRT_MAX * 128.0 + 0.4);
+						((int8_t *)output_buffer)[i] = (int8_t)clamp_round(((int16_t *)buffers[chan_idx])[i] * cs16_to_8bit, -128, 127);
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
@@ -422,7 +456,7 @@ int main(int argc, char **argv)
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CU8)) {
 					for (int i = 0; i < samples_read*2; ++i) {
-						((int8_t *)output_buffer)[i] = (int8_t)(((int16_t*)buffers[chan_idx])[i] / (float)SHRT_MAX * 128.0 + 127.4);
+						((uint8_t *)output_buffer)[i] = (uint8_t)clamp_round(((int16_t *)buffers[chan_idx])[i] * cs16_to_8bit + 128.0f, 0, 255);
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
@@ -431,7 +465,7 @@ int main(int argc, char **argv)
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CS16) && ISFMT(output_format, SOAPY_SDR_CF32)) {
 					for (int i = 0; i < samples_read*2; ++i) { // complex!
-						((float *)output_buffer)[i] = ((uint16_t*)buffers[chan_idx])[i] * 1.0f / (float)SHRT_MAX;
+						((float *)output_buffer)[i] = ((int16_t *)buffers[chan_idx])[i] * cs16_to_float;
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
@@ -440,7 +474,7 @@ int main(int argc, char **argv)
 					}
 				} else if (ISFMT(input_format, SOAPY_SDR_CF32) && ISFMT(output_format, SOAPY_SDR_CS16)) {
 					for (int i = 0; i < samples_read*2; ++i) {
-						((int16_t *)output_buffer)[i] = ((float*)buffers[chan_idx])[i] * (float)SHRT_MAX;
+						((int16_t *)output_buffer)[i] = (int16_t)clamp_round(((float *)buffers[chan_idx])[i] * 32768.0f, SHRT_MIN, SHRT_MAX);
 					}
 					if (fwrite(output_buffer, SoapySDR_formatToSize(output_format), samples_read, outfiles[chan_idx]) != (size_t)samples_read) {
 						fprintf(stderr, "Short write, samples lost, exiting!\n");
