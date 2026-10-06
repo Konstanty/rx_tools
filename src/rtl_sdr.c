@@ -36,6 +36,7 @@
 #include "convenience.h"
 #include <SoapySDR/Device.h>
 #include <SoapySDR/Formats.h>
+#include <SoapySDR/Errors.h>
 
 #define DEFAULT_SAMPLE_RATE		2048000
 #define MINIMAL_BUF_LENGTH		512
@@ -264,7 +265,7 @@ int main(int argc, char **argv)
 
 	size_t max_dev_channels = SoapySDRDevice_getNumChannels(dev, SOAPY_SDR_RX);
 	if (num_channels == 0 || num_channels > max_dev_channels) {
-		fprintf(stderr, "Invalid channel specification, requested %ld channels, maximum available %ld\n", num_channels, max_dev_channels);
+		fprintf(stderr, "Invalid channel specification, requested %zu channels, maximum available %zu\n", num_channels, max_dev_channels);
 		exit(1);
 	}
 
@@ -322,7 +323,7 @@ int main(int argc, char **argv)
 	} else {
 		for (size_t i = 0; i < num_channels; i++) {
 			char fn[PATH_MAX];
-			snprintf(fn, PATH_MAX, "%s.rx%ld", filename, channels[i]);
+			snprintf(fn, PATH_MAX, "%s.rx%zu", filename, channels[i]);
 			outfiles[i] = fopen(fn, "wb");
 			if (!outfiles[i]) {
 				fprintf(stderr, "Failed to open %s\n", fn);
@@ -370,6 +371,8 @@ int main(int argc, char **argv)
 	if(sdr_settings)
 		verbose_settings(dev, sdr_settings);
 
+	int read_complete = 0;
+	int write_error = 0;
 	if (true || sync_mode) {
 		fprintf(stderr, "Reading samples in sync mode...\n");
 		if (SoapySDRDevice_activateStream(dev, stream, 0, 0, 0) != 0) {
@@ -381,13 +384,12 @@ int main(int argc, char **argv)
 		while (!do_exit) {
 			int flags = 0;
 			long long timeNs = 0;
-			// 1 s, the first buffers after activateStream (e.g. bladeRF 2 channel) can take well over 1 ms
-			long timeoutNs = 1000000000;
+			long timeoutUs = 1000000; // 1 s, readStream takes microseconds
 			int samples_read = 0;
 			int write_failed = 0;
 
 			// readStream returns the number of samples read (which is the same for each channel)
-			samples_read = SoapySDRDevice_readStream(dev, stream, buffers, buffer_size, &flags, &timeNs, timeoutNs);
+			samples_read = SoapySDRDevice_readStream(dev, stream, buffers, buffer_size, &flags, &timeNs, timeoutUs);
 
 			//fprintf(stderr, "readStream ret=%d, flags=%d, timeNs=%lld\n", samples_read, flags, timeNs);
 			if (samples_read < 0) {
@@ -411,6 +413,7 @@ int main(int argc, char **argv)
 			if ((samples_to_read > 0) && (samples_to_read <= (uint64_t)samples_read)) {
 				// truncate to requested sample count
 				samples_read = samples_to_read;
+				read_complete = 1;
 				do_exit = 1;
 			}
 
@@ -484,6 +487,7 @@ int main(int argc, char **argv)
 				}
 			}
 			if (write_failed) {
+				write_error = 1;
 				r = -EIO;
 				break;
 			}
@@ -502,10 +506,14 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (do_exit && r >= 0)
-		fprintf(stderr, "\nUser cancel, exiting...\n");
+	if (write_error)
+		fprintf(stderr, "\nWrite error, exiting...\n");
+	else if (r < 0)
+		fprintf(stderr, "\nRead error %d (%s), exiting...\n", r, SoapySDR_errToStr(r));
+	else if (read_complete)
+		fprintf(stderr, "\nRead requested number of samples, exiting...\n");
 	else
-		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);
+		fprintf(stderr, "\nUser cancel, exiting...\n");
 
 	if (strcmp(filename, "-") != 0) {
 		for (size_t i = 0; i < num_channels; ++i) {
@@ -522,6 +530,7 @@ int main(int argc, char **argv)
 		free(buffers[chan_idx]);
 	}
 	free(buffers);
+	free(output_buffer);
 
 	return r >= 0 ? r : -r;
 }
