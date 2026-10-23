@@ -135,16 +135,16 @@ double atofp(char *s)
 	return atof(s);
 }
 
-int verbose_set_frequency(SoapySDRDevice *dev, uint32_t frequency, size_t channel)
+int verbose_set_frequency(SoapySDRDevice *dev, double frequency, size_t channel)
 {
 	int r;
 
 	SoapySDRKwargs args = {0};
-	r = (int)SoapySDRDevice_setFrequency(dev, SOAPY_SDR_RX, channel, (double)frequency, &args);
+	r = (int)SoapySDRDevice_setFrequency(dev, SOAPY_SDR_RX, channel, frequency, &args);
 	if (r != 0) {
 		fprintf(stderr, "WARNING: Failed to set center freq: %s\n", SoapySDRDevice_lastError());
 	} else {
-		fprintf(stderr, "Tuned to %u Hz.\n", frequency);
+		fprintf(stderr, "Tuned to %.0f Hz.\n", frequency);
 	}
 	return r;
 }
@@ -494,9 +494,14 @@ int verbose_device_search(char *s, SoapySDRDevice **devOut)
 	return 0;
 }
 
-int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t *channels, size_t num_channels, const char *format)
+int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t *channels, size_t num_channels, const char *format, const char *stream_args_str)
 {
 	SoapySDRKwargs stream_args = {0};
+	if (stream_args_str) {
+		stream_args = SoapySDRKwargs_fromString(stream_args_str);
+		for (size_t i = 0; i < stream_args.size; ++i)
+			fprintf(stderr, "Stream argument %s=%s\n", stream_args.keys[i], stream_args.vals[i]);
+	}
 
 	size_t max_dev_channels = SoapySDRDevice_getNumChannels(dev, SOAPY_SDR_RX);
 	for (size_t idx=0; idx<num_channels; ++idx) {
@@ -506,6 +511,7 @@ int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t
 		}
 	}
 	*streamOut = SoapySDRDevice_setupStream(dev, SOAPY_SDR_RX, format, channels, num_channels, &stream_args);
+	SoapySDRKwargs_clear(&stream_args);
 	if (*streamOut == NULL) {
 		fprintf(stderr, "SoapySDRDevice_setupStream failed: %s\n", SoapySDRDevice_lastError());
 		return -3;
@@ -513,7 +519,7 @@ int verbose_setup_stream(SoapySDRDevice *dev, SoapySDRStream **streamOut, size_t
 	return 0;
 }
 
-int verbose_set_properties(SoapySDRDevice *dev, uint32_t samp_rate, int frequency, char *gain_str, char *antenna_str, int ppm_error, size_t channel) {
+int verbose_set_properties(SoapySDRDevice *dev, uint32_t samp_rate, double frequency, char *gain_str, char *antenna_str, int ppm_error, size_t channel) {
 
 	int r = 0;
 

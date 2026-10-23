@@ -74,6 +74,7 @@ void usage(void)
 		"\t[-S force sync output (default: async)]\n"
 		"\t[-D direct_sampling_mode, 0 (default/off), 1 (I), 2 (Q), 3 (no-mod)]\n"
 		"\t[-t SDR settings (ex: rfnotch_ctrl=false,dabnotch_ctrlb=true)]\n"
+		"\t[-A stream arguments (ex: buflen=32768,buffers=64)]\n"
 		"\tfilename (a '-' dumps samples to stdout)\n\n");
 	exit(1);
 }
@@ -141,6 +142,20 @@ static void sighandler(int signum)
 	fprintf(stderr, "Signal caught, exiting!\n");
 	do_exit = 1;
 }
+
+// Watchdog for driver calls that can block forever, e.g. libbladeRF opening the device or stopping a
+// stream that stalled. SIGTERM only sets do_exit, so without it a hang needs a kill -9.
+#define OPEN_TIMEOUT_S		30
+#define SHUTDOWN_TIMEOUT_S	10
+static volatile sig_atomic_t watchdog_exit_code = 3;
+
+static void watchdog_handler(int signum)
+{
+	(void)signum;
+	static const char msg[] = "\nERROR: SDR did not respond, exiting...\n";
+	if (write(STDERR_FILENO, msg, sizeof(msg) - 1) < 0) {}
+	_exit(watchdog_exit_code);
+}
 #endif
 
 int main(int argc, char **argv)
@@ -165,9 +180,10 @@ int main(int argc, char **argv)
 	char const *input_format = SOAPY_SDR_CS16;
 	char const *output_format = SOAPY_SDR_CU8;
 	char *sdr_settings = NULL;
+	char *stream_args = NULL;
 	double full_scale = 0;
 
-	while ((opt = getopt(argc, argv, "d:f:g:c:a:s:b:n:p:D:SI:F:t:w:k:x:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:f:g:c:a:s:b:n:p:D:SI:F:t:w:k:x:A:")) != -1) {
 		switch (opt) {
 		case 'd':
 			dev_query = optarg;
@@ -227,6 +243,9 @@ int main(int argc, char **argv)
 		case 't':
 			sdr_settings = optarg;
 			break;
+		case 'A':
+			stream_args = optarg;
+			break;
 		case 'x':
 			full_scale = atof(optarg);
 			if (full_scale <= 0) {
@@ -257,6 +276,10 @@ int main(int argc, char **argv)
 
 	int tmp_stdout = suppress_stdout_start();
 	// TODO: allow choosing input format, see https://www.reddit.com/r/RTLSDR/comments/4tpxv7/rx_tools_commandline_sdr_tools_for_rtlsdr_bladerf/d5ohfse?context=3
+#ifndef _WIN32
+	signal(SIGALRM, watchdog_handler);
+	alarm(OPEN_TIMEOUT_S); // until the stream is running, the read loop has its own timeouts
+#endif
 	r = verbose_device_search(dev_query, &dev);
 	if (r != 0 || dev == NULL) {
 		fprintf(stderr, "Failed to open sdr device matching '%s'.\n", dev_query);
@@ -332,7 +355,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	r = verbose_setup_stream(dev, &stream, channels, num_channels, input_format);
+	r = verbose_setup_stream(dev, &stream, channels, num_channels, input_format, stream_args);
 	if(r != 0){
 		fprintf(stderr, "Failed to setup stream\n");
 		exit(1);
@@ -380,6 +403,9 @@ int main(int argc, char **argv)
                         exit(1);
                 }
 		suppress_stdout_stop(tmp_stdout);
+#ifndef _WIN32
+		alarm(0);
+#endif
 		int num_timeouts = 0;
 		while (!do_exit) {
 			int flags = 0;
@@ -521,6 +547,11 @@ int main(int argc, char **argv)
 		}
 	}
 
+#ifndef _WIN32
+	// the files are closed, so a hang from here on only loses the cleanup, keep the exit code of the read
+	watchdog_exit_code = r >= 0 ? r : -r;
+	alarm(SHUTDOWN_TIMEOUT_S);
+#endif
 	SoapySDRDevice_deactivateStream(dev, stream, 0, 0);
 	SoapySDRDevice_closeStream(dev, stream);
 	SoapySDRDevice_unmake(dev);
